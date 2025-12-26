@@ -7,7 +7,6 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     """
 
     use Phoenix.LiveView
-    import Phoenix.HTML, only: [raw: 1]
 
     alias FYI.Schema.Event
 
@@ -15,24 +14,37 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
     @impl true
     def mount(_params, _session, socket) do
+      if connected?(socket), do: FYI.subscribe()
+
       {:ok,
        socket
        |> assign(:page_title, "FYI Events")
        |> assign(:search, "")
        |> assign(:selected_event, nil)
-       |> assign(:per_page, @per_page)
-       |> assign(:chart_id, System.unique_integer([:positive]))}
+       |> assign(:per_page, @per_page)}
+    end
+
+    @impl true
+    def handle_info({:fyi_event, _event}, socket) do
+      # Reload events when a new one comes in
+      {:noreply,
+       socket
+       |> load_events()
+       |> compute_field_stats()
+       |> compute_histogram()}
     end
 
     @impl true
     def handle_params(params, _uri, socket) do
       time_range = params["range"] || "7d"
+      event_type = params["type"] || ""
       event_id = params["id"]
 
       socket =
         socket
         |> assign(:time_range, time_range)
-        |> assign(:chart_id, System.unique_integer([:positive]))
+        |> assign(:event_type, event_type)
+        |> load_event_types()
         |> load_events()
         |> compute_field_stats()
         |> compute_histogram()
@@ -54,19 +66,29 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
        |> assign(:search, search)
        |> load_events()
        |> compute_field_stats()
-       |> compute_histogram()
-       |> assign(:chart_id, System.unique_integer([:positive]))}
+       |> compute_histogram()}
     end
 
     @impl true
     def handle_event("time_range", %{"range" => range}, socket) do
-      {:noreply, push_patch(socket, to: "/fyi?range=#{range}")}
+      {:noreply, push_patch(socket, to: build_url(range, socket.assigns.event_type))}
+    end
+
+    @impl true
+    def handle_event("event_type", %{"type" => type}, socket) do
+      {:noreply, push_patch(socket, to: build_url(socket.assigns.time_range, type))}
     end
 
     @impl true
     def handle_event("close_detail", _, socket) do
-      range = socket.assigns.time_range
-      {:noreply, push_patch(socket, to: "/fyi?range=#{range}")}
+      {:noreply,
+       push_patch(socket, to: build_url(socket.assigns.time_range, socket.assigns.event_type))}
+    end
+
+    defp build_url(range, type) do
+      params = [{"range", range}]
+      params = if type != "", do: params ++ [{"type", type}], else: params
+      "/fyi?" <> URI.encode_query(params)
     end
 
     @impl true
@@ -172,7 +194,57 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             background: white;
             border-bottom: 1px solid #e2e8f0;
             padding: 16px 20px;
-            height: 100px;
+            height: 80px;
+          }
+
+          .fyi-histogram {
+            display: flex;
+            align-items: flex-end;
+            height: 100%;
+            gap: 2px;
+          }
+
+          .fyi-bar {
+            flex: 1;
+            background: #6366f1;
+            border-radius: 2px 2px 0 0;
+            transition: height 0.2s ease;
+            position: relative;
+            cursor: default;
+          }
+
+          .fyi-bar:hover {
+            background: #4f46e5;
+          }
+
+          .fyi-bar[data-count="0"] {
+            background: transparent;
+          }
+
+          .fyi-bar::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1e293b;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s;
+            margin-bottom: 4px;
+          }
+
+          .fyi-bar:hover::after {
+            opacity: 1;
+          }
+
+          .fyi-bar[data-count="0"]::after {
+            display: none;
           }
 
           .fyi-content {
@@ -266,59 +338,94 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             color: #1e293b;
           }
 
-          .fyi-fields-panel {
-            width: 280px;
+          .fyi-detail-panel {
+            width: 360px;
             background: white;
             border-left: 1px solid #e2e8f0;
             overflow-y: auto;
-            padding: 16px;
+            display: flex;
+            flex-direction: column;
           }
 
-          .fyi-fields-header {
+          .fyi-detail-header {
+            padding: 16px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+          }
+
+          .fyi-detail-header h2 {
+            font-size: 14px;
             font-weight: 600;
             color: #1e293b;
+            margin: 0;
+            word-break: break-word;
+          }
+
+          .fyi-detail-close {
+            background: none;
+            border: none;
+            font-size: 20px;
+            color: #94a3b8;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+            flex-shrink: 0;
+          }
+
+          .fyi-detail-close:hover {
+            color: #64748b;
+          }
+
+          .fyi-detail-body {
+            padding: 16px;
+            flex: 1;
+          }
+
+          .fyi-detail-row {
+            margin-bottom: 12px;
+          }
+
+          .fyi-detail-label {
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            color: #64748b;
+            margin-bottom: 4px;
+            display: block;
+          }
+
+          .fyi-detail-value {
+            color: #1e293b;
+            font-size: 13px;
+            word-break: break-word;
+          }
+
+          .fyi-detail-mono {
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 12px;
+          }
+
+          .fyi-detail-tag {
+            background: #e0e7ff;
+            color: #4338ca;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            margin-right: 4px;
+            display: inline-block;
             margin-bottom: 4px;
           }
 
-          .fyi-fields-subheader {
-            font-size: 12px;
-            color: #64748b;
-            margin-bottom: 16px;
-          }
-
-          .fyi-fields-search {
-            width: 100%;
-            padding: 8px 12px;
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            font-size: 13px;
-            margin-bottom: 16px;
-            box-sizing: border-box;
-          }
-
-          .fyi-field-item {
+          .fyi-detail-empty {
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            padding: 6px 0;
-            border-bottom: 1px solid #f1f5f9;
-          }
-
-          .fyi-field-name {
-            color: #1e293b;
-            font-weight: 500;
-          }
-
-          .fyi-field-meta {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
+            justify-content: center;
+            height: 100%;
             color: #94a3b8;
-          }
-
-          .fyi-field-type {
-            color: #64748b;
+            font-size: 13px;
           }
 
           .fyi-status-bar {
@@ -335,6 +442,82 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             padding: 48px;
             text-align: center;
             color: #94a3b8;
+          }
+
+          .fyi-onboarding {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 64px 32px;
+            text-align: center;
+            height: 100%;
+          }
+
+          .fyi-onboarding-icon {
+            color: #cbd5e1;
+            margin-bottom: 24px;
+          }
+
+          .fyi-onboarding h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1e293b;
+            margin: 0 0 8px 0;
+          }
+
+          .fyi-onboarding > p {
+            color: #64748b;
+            margin: 0 0 24px 0;
+            font-size: 14px;
+          }
+
+          .fyi-onboarding-code {
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 16px 24px;
+            margin-bottom: 16px;
+          }
+
+          .fyi-onboarding-code code {
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 13px;
+            color: #6366f1;
+          }
+
+          .fyi-onboarding-hint {
+            font-size: 12px;
+            color: #94a3b8;
+          }
+
+          .fyi-no-results {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 48px 32px;
+            text-align: center;
+            height: 100%;
+          }
+
+          .fyi-no-results-icon {
+            color: #cbd5e1;
+            margin-bottom: 16px;
+          }
+
+          .fyi-no-results h4 {
+            font-size: 15px;
+            font-weight: 600;
+            color: #64748b;
+            margin: 0 0 8px 0;
+          }
+
+          .fyi-no-results p {
+            color: #94a3b8;
+            margin: 0;
+            font-size: 13px;
+            max-width: 280px;
           }
 
           .fyi-modal-overlay {
@@ -444,6 +627,14 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
                 </form>
               </div>
               <div class="fyi-header-actions">
+                <form phx-change="event_type">
+                  <select name="type" class="fyi-time-select">
+                    <option value="" selected={@event_type == ""}>All events</option>
+                    <%= for type <- @event_types do %>
+                      <option value={type} selected={@event_type == type}><%= type %></option>
+                    <% end %>
+                  </select>
+                </form>
                 <form phx-change="time_range">
                   <select name="range" class="fyi-time-select">
                     <option value="5m" selected={@time_range == "5m"}>Past 5 minutes</option>
@@ -462,25 +653,53 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             </div>
 
             <div class="fyi-chart-container">
-              <canvas
-                id={"fyi-histogram-#{@chart_id}"}
-                phx-hook="FYIChart"
-                data-histogram={Jason.encode!(@histogram)}
-              ></canvas>
+              <div class="fyi-histogram">
+                <%= for {value, idx} <- Enum.with_index(@histogram.values) do %>
+                  <div
+                    class="fyi-bar"
+                    style={"height: #{bar_height(value, @histogram.values)}%"}
+                    data-count={value}
+                    data-tooltip={"#{value} events • #{Enum.at(@histogram.labels, idx)}"}
+                  ></div>
+                <% end %>
+              </div>
             </div>
 
             <div class="fyi-content">
               <div class="fyi-events-panel">
-                <%= if Enum.empty?(@events) do %>
-                  <div class="fyi-empty">
-                    <p>No events found</p>
+                <%= if Enum.empty?(@events) and @total_event_count == 0 do %>
+                  <div class="fyi-onboarding">
+                    <div class="fyi-onboarding-icon">
+                      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                      </svg>
+                    </div>
+                    <h3>No events yet</h3>
+                    <p>Start emitting events from your app to see them here.</p>
+                    <div class="fyi-onboarding-code">
+                      <code>FYI.emit("user.signup", payload)</code>
+                    </div>
+                    <div class="fyi-onboarding-hint">
+                      Events will appear in real-time as they're emitted.
+                    </div>
                   </div>
                 <% else %>
+                  <%= if Enum.empty?(@events) do %>
+                    <div class="fyi-no-results">
+                      <div class="fyi-no-results-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                          <circle cx="11" cy="11" r="8"></circle>
+                          <path d="m21 21-4.35-4.35"></path>
+                        </svg>
+                      </div>
+                      <h4>No events found</h4>
+                      <p>No events match your current filters. Try adjusting the time range or event type.</p>
+                    </div>
+                  <% else %>
                   <%= for event <- @events do %>
-                    <.link patch={"/fyi/events/#{event.id}"} class="fyi-event-row">
+                    <.link patch={event_url(event.id, @time_range, @event_type)} class="fyi-event-row">
                       <svg class="fyi-event-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
                       </svg>
                       <span class="fyi-event-time"><%= format_time_full(event.inserted_at) %></span>
                       <span class={"fyi-event-level #{level_class(event.name)}"}><%= level_text(event.name) %></span>
@@ -501,20 +720,51 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
                       </div>
                     </.link>
                   <% end %>
+                  <% end %>
                 <% end %>
               </div>
 
-              <div class="fyi-fields-panel">
-                <div class="fyi-fields-header">Fields</div>
-                <div class="fyi-fields-subheader">Discovered fields for the query.</div>
-                <input type="text" class="fyi-fields-search" placeholder="Filter" />
-                <%= for {field, %{type: type, pct: pct}} <- @field_stats do %>
-                  <div class="fyi-field-item">
-                    <span class="fyi-field-name"><%= field %></span>
-                    <span class="fyi-field-meta">
-                      <span class="fyi-field-type"><%= type %></span>
-                      <span><%= pct %>%</span>
-                    </span>
+              <div class="fyi-detail-panel">
+                <%= if @selected_event do %>
+                  <div class="fyi-detail-header">
+                    <h2><%= @selected_event.name %></h2>
+                    <button class="fyi-detail-close" phx-click="close_detail">&times;</button>
+                  </div>
+                  <div class="fyi-detail-body">
+                    <div class="fyi-detail-row">
+                      <span class="fyi-detail-label">Event ID</span>
+                      <span class="fyi-detail-value fyi-detail-mono"><%= @selected_event.id %></span>
+                    </div>
+                    <div class="fyi-detail-row">
+                      <span class="fyi-detail-label">Actor</span>
+                      <span class="fyi-detail-value"><%= @selected_event.actor || "-" %></span>
+                    </div>
+                    <div class="fyi-detail-row">
+                      <span class="fyi-detail-label">Source</span>
+                      <span class="fyi-detail-value"><%= @selected_event.source || "-" %></span>
+                    </div>
+                    <div class="fyi-detail-row">
+                      <span class="fyi-detail-label">Time</span>
+                      <span class="fyi-detail-value"><%= format_time_full(@selected_event.inserted_at) %></span>
+                    </div>
+                    <%= if map_size(@selected_event.tags || %{}) > 0 do %>
+                      <div class="fyi-detail-row">
+                        <span class="fyi-detail-label">Tags</span>
+                        <span class="fyi-detail-value">
+                          <%= for {k, v} <- @selected_event.tags do %>
+                            <span class="fyi-detail-tag"><%= k %>: <%= v %></span>
+                          <% end %>
+                        </span>
+                      </div>
+                    <% end %>
+                    <div class="fyi-detail-row">
+                      <span class="fyi-detail-label">Payload</span>
+                    </div>
+                    <pre class="fyi-payload"><%= Jason.encode!(@selected_event.payload, pretty: true) %></pre>
+                  </div>
+                <% else %>
+                  <div class="fyi-detail-empty">
+                    <p>Select an event to view details</p>
                   </div>
                 <% end %>
               </div>
@@ -526,44 +776,6 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             </div>
           </div>
         </div>
-
-        <%= if @selected_event do %>
-          <div class="fyi-modal-overlay" phx-click="close_detail">
-            <div class="fyi-modal" phx-click-away="close_detail">
-              <div class="fyi-modal-header">
-                <h2><%= @selected_event.name %></h2>
-                <button class="fyi-modal-close" phx-click="close_detail">&times;</button>
-              </div>
-              <div class="fyi-modal-body">
-                <div class="fyi-detail-grid">
-                  <span class="fyi-detail-label">Event ID</span>
-                  <span class="fyi-detail-value"><%= @selected_event.id %></span>
-
-                  <span class="fyi-detail-label">Actor</span>
-                  <span class="fyi-detail-value"><%= @selected_event.actor || "-" %></span>
-
-                  <span class="fyi-detail-label">Source</span>
-                  <span class="fyi-detail-value"><%= @selected_event.source || "-" %></span>
-
-                  <span class="fyi-detail-label">Time</span>
-                  <span class="fyi-detail-value"><%= @selected_event.inserted_at %></span>
-
-                  <%= if map_size(@selected_event.tags || %{}) > 0 do %>
-                    <span class="fyi-detail-label">Tags</span>
-                    <span class="fyi-detail-value">
-                      <%= for {k, v} <- @selected_event.tags do %>
-                        <span style="background:#e0e7ff;color:#4338ca;padding:2px 6px;border-radius:3px;font-size:12px;margin-right:4px;"><%= k %>: <%= v %></span>
-                      <% end %>
-                    </span>
-                  <% end %>
-                </div>
-
-                <div class="fyi-payload-label">Payload</div>
-                <pre class="fyi-payload"><%= Jason.encode!(@selected_event.payload, pretty: true) %></pre>
-              </div>
-            </div>
-          </div>
-        <% end %>
       </div>
 
       """
@@ -585,6 +797,13 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           )
 
         query =
+          if socket.assigns[:event_type] && socket.assigns.event_type != "" do
+            from(e in query, where: e.name == ^socket.assigns.event_type)
+          else
+            query
+          end
+
+        query =
           if socket.assigns[:search] && socket.assigns.search != "" do
             search_filter = "%#{socket.assigns.search}%"
 
@@ -600,6 +819,40 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       else
         assign(socket, :events, [])
       end
+    end
+
+    defp load_event_types(socket) do
+      repo = Application.get_env(:fyi, :repo)
+
+      if repo && Code.ensure_loaded?(Event) do
+        import Ecto.Query
+
+        types =
+          from(e in Event,
+            select: e.name,
+            distinct: true,
+            order_by: [asc: e.name]
+          )
+          |> repo.all()
+
+        total_count =
+          from(e in Event, select: count(e.id))
+          |> repo.one()
+
+        socket
+        |> assign(:event_types, types)
+        |> assign(:total_event_count, total_count || 0)
+      else
+        socket
+        |> assign(:event_types, [])
+        |> assign(:total_event_count, 0)
+      end
+    end
+
+    defp event_url(event_id, range, type) do
+      params = [{"range", range}]
+      params = if type != "", do: params ++ [{"type", type}], else: params
+      "/fyi/events/#{event_id}?" <> URI.encode_query(params)
     end
 
     defp time_range_since(range) do
@@ -722,6 +975,11 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     defp format_time_ago(seconds) when seconds < 60, do: "#{seconds}s ago"
     defp format_time_ago(seconds) when seconds < 3600, do: "#{div(seconds, 60)}m ago"
     defp format_time_ago(seconds), do: "#{div(seconds, 3600)}h ago"
+
+    defp bar_height(value, values) do
+      max_val = Enum.max(values, fn -> 1 end)
+      if max_val == 0, do: 0, else: round(value / max_val * 100)
+    end
 
     defp load_event_detail(socket, id) do
       repo = Application.get_env(:fyi, :repo)

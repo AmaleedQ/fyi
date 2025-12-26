@@ -31,7 +31,7 @@ mix fyi.install
 This will:
 1. Add `FYI.Application` to your supervision tree
 2. Create a migration for the `fyi_events` table
-3. Add a `/fyi` route scope to your router
+3. Print instructions to add the `/fyi` route to your router
 4. Add configuration stubs to your config files
 
 ### Installer Options
@@ -69,7 +69,7 @@ Set `app_name` to identify events when multiple apps share the same Slack channe
 config :fyi, app_name: "MyApp"
 ```
 
-Messages will show as: `[MyApp] *purchase.created* by user_123`
+Messages will include the app name: `[MyApp] *purchase.created* by user_123`
 
 ### Emojis
 
@@ -113,8 +113,16 @@ If no routes are configured, all events go to all sinks.
 ```elixir
 FYI.emit("purchase.created", %{amount: 4900, currency: "GBP"}, actor: user_id)
 
-FYI.emit("user.signup", %{email: "user@example.com"}, tags: %{source: "landing_page"})
+FYI.emit("user.signup", %{email: "user@example.com"}, source: "landing_page")
+
+FYI.emit("error.critical", %{message: "DB connection failed"}, emoji: "🚨", tags: %{env: "prod"})
 ```
+
+Options:
+- `:actor` - who triggered the event (user_id, email, etc.)
+- `:source` - where the event originated (e.g., "api", "web", "worker")
+- `:tags` - additional metadata map for filtering
+- `:emoji` - override emoji for this specific event
 
 ### Emit from Ecto.Multi (Recommended)
 
@@ -131,27 +139,39 @@ This ensures events are only emitted after the transaction commits successfully.
 
 ### Feedback Component
 
-Add the feedback button to your app layout:
+Add the feedback button to any LiveView:
 
 ```heex
-<FYI.Web.FeedbackButton.fyi_feedback_button />
+<.live_component module={FYI.Web.FeedbackComponent} id="feedback" />
 ```
 
-Or import and use as a function component:
+Or use the convenience wrapper:
 
 ```elixir
 import FYI.Web.FeedbackButton
 
-# In your template
+# In your LiveView template
 <.fyi_feedback_button />
 ```
 
 ### Admin Inbox
 
 Visit `/fyi` in your app to see the event inbox with:
-- List of recent events
-- Filtering by event name and actor
-- Event detail view with payload
+- Real-time event updates (requires PubSub config)
+- Time range filtering (5 minutes to all time)
+- Event type filtering
+- Search by event name or actor
+- Event detail panel with payload
+
+### Real-time Updates
+
+To enable real-time updates in the admin inbox, add your PubSub module:
+
+```elixir
+config :fyi, pubsub: MyApp.PubSub
+```
+
+New events will appear instantly without refreshing the page.
 
 ## Built-in Sinks
 

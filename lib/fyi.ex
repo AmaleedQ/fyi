@@ -66,7 +66,34 @@ defmodule FYI do
 
     with :ok <- maybe_persist(event),
          :ok <- Dispatcher.dispatch(event) do
+      broadcast_event(event)
       {:ok, event}
+    end
+  end
+
+  @doc """
+  Subscribes to real-time FYI events.
+  Used by the FYI inbox LiveView for live updates.
+  """
+  def subscribe do
+    case get_pubsub() do
+      {pubsub, topic} -> Phoenix.PubSub.subscribe(pubsub, topic)
+      nil -> :ok
+    end
+  end
+
+  defp broadcast_event(event) do
+    case get_pubsub() do
+      {pubsub, topic} -> Phoenix.PubSub.broadcast(pubsub, topic, {:fyi_event, event})
+      nil -> :ok
+    end
+  end
+
+  defp get_pubsub do
+    case Application.get_env(:fyi, :pubsub) do
+      nil -> nil
+      pubsub when is_atom(pubsub) -> {pubsub, "fyi:events"}
+      {pubsub, topic} -> {pubsub, topic}
     end
   end
 
