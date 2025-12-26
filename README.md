@@ -168,12 +168,24 @@ Skip installing with `mix fyi.install --no-feedback`.
 
 ### Admin Inbox
 
-Visit `/fyi` in your app to see the event inbox with:
+Add the route to your router (the installer prints this):
+
+```elixir
+# In router.ex
+scope "/fyi", FYI.Web do
+  pipe_through [:browser]
+  live "/", InboxLive, :index
+  live "/events/:id", InboxLive, :show
+end
+```
+
+Visit `/fyi` to see the event inbox with:
+- Activity histogram with time-based tooltips
 - Real-time event updates (requires PubSub config)
 - Time range filtering (5 minutes to all time)
 - Event type filtering
 - Search by event name or actor
-- Event detail panel with payload
+- Event detail panel with full payload
 
 ### Real-time Updates
 
@@ -254,6 +266,15 @@ FYI is intentionally simple:
 - ✅ Failures are logged, never block
 
 Think "Oban Pro install experience", but for events + feedback.
+
+## Development
+
+To use FYI locally without publishing to Hex:
+
+```elixir
+# In your app's mix.exs
+{:fyi, path: "../fyi"}
+```
 
 ## License
 
