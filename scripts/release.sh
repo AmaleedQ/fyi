@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Get current version from mix.exs
-CURRENT_VERSION=$(grep '@version' mix.exs | sed 's/.*"\(.*\)".*/\1/')
+CURRENT_VERSION=$(grep '^[[:space:]]*@version' mix.exs | sed 's/.*"\(.*\)".*/\1/')
 
 echo -e "${GREEN}Current version: ${CURRENT_VERSION}${NC}"
 echo ""
@@ -72,14 +72,16 @@ if ! grep -q "## \[Unreleased\]" CHANGELOG.md; then
 fi
 
 # Check if there are actual changes in [Unreleased]
-if grep -A 3 "## \[Unreleased\]" CHANGELOG.md | grep -q "^## \["; then
+# Extract content between [Unreleased] and the next version heading
+UNRELEASED_CONTENT=$(sed -n '/^## \[Unreleased\]/,/^## \[[0-9]/p' CHANGELOG.md | sed '$d')
+if ! echo "$UNRELEASED_CONTENT" | grep -q "^-"; then
   echo -e "${RED}Error: [Unreleased] section appears to be empty${NC}"
   echo "Please add your changes to the [Unreleased] section first."
   exit 1
 fi
 
 echo "📝 Updating mix.exs..."
-sed -i.bak "s/@version \"${CURRENT_VERSION}\"/@version \"${NEW_VERSION}\"/" mix.exs
+sed -i.bak "s/^  @version \"${CURRENT_VERSION}\"/  @version \"${NEW_VERSION}\"/" mix.exs
 rm mix.exs.bak
 
 echo "📝 Updating CHANGELOG.md..."
